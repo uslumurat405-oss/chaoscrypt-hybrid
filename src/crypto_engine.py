@@ -8,6 +8,35 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 GCM_NONCE_SIZE = 12
 GCM_TAG_SIZE = 16
+LORENZ_IC_BOUND = 15.0
+LORENZ_STATE_BOUND = 50.0
+
+
+def _seed_to_lorenz_state(seed: bytes) -> tuple[float, float, float]:
+    """24 byte seed'i [-15, 15] aralığındaki Lorenz başlangıç değerlerine eşler."""
+    values = np.frombuffer(seed, dtype=np.float64).astype(np.float64, copy=True)
+    values = np.nan_to_num(values, nan=0.0, posinf=LORENZ_IC_BOUND, neginf=-LORENZ_IC_BOUND)
+
+    if np.any(np.abs(values) > LORENZ_IC_BOUND):
+        # Ham float64 taşmasını önlemek için her 8 byte'ı düzgün dağılımlı [-15, 15]'e çevir.
+        for i in range(3):
+            unit = int.from_bytes(seed[i * 8 : (i + 1) * 8], "little") / 2**64
+            values[i] = unit * (2.0 * LORENZ_IC_BOUND) - LORENZ_IC_BOUND
+
+    return tuple(np.clip(values, -LORENZ_IC_BOUND, LORENZ_IC_BOUND))
+
+
+def _stabilize_lorenz_state(x: float, y: float, z: float) -> tuple[float, float, float]:
+    """Sonsuz/NaN veya aşırı büyük durumları Lorenz attractor ölçeğine geri çeker."""
+    state = np.array([x, y, z], dtype=np.float64)
+    if not np.all(np.isfinite(state)):
+        state = np.nan_to_num(state, nan=0.0, posinf=LORENZ_STATE_BOUND, neginf=-LORENZ_STATE_BOUND)
+
+    max_abs = np.max(np.abs(state))
+    if max_abs > LORENZ_STATE_BOUND:
+        state *= LORENZ_STATE_BOUND / max_abs
+
+    return float(state[0]), float(state[1]), float(state[2])
 
 
 def generate_chaos_key(seed: bytes, iterations: int = 10000) -> bytes:
@@ -24,20 +53,26 @@ def generate_chaos_key(seed: bytes, iterations: int = 10000) -> bytes:
     if len(seed) != 24:
         raise ValueError("seed must be exactly 24 bytes")
 
-    x, y, z = np.frombuffer(seed, dtype=np.float64)
+    x, y, z = _seed_to_lorenz_state(seed)
 
     sigma = 10.0
     rho = 28.0
     beta = 8.0 / 3.0
     dt = 0.01
 
-    for _ in range(iterations):
-        dx = sigma * (y - x)
-        dy = x * (rho - z) - y
-        dz = x * y - beta * z
-        x = x + dt * dx
-        y = y + dt * dy
-        z = z + dt * dz
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for _ in range(iterations):
+            dx = sigma * (y - x)
+            dy = x * (rho - z) - y
+            dz = x * y - beta * z
+            next_x = x + dt * dx
+            next_y = y + dt * dy
+            next_z = z + dt * dz
+
+            if not (np.isfinite(next_x) and np.isfinite(next_y) and np.isfinite(next_z)):
+                break
+
+            x, y, z = _stabilize_lorenz_state(next_x, next_y, next_z)
 
     final_state = np.array([x, y, z], dtype=np.float64)
     state_bytes = final_state.tobytes()
