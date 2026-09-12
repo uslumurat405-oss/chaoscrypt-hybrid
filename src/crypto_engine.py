@@ -2,8 +2,12 @@ import hashlib
 import os
 
 import numpy as np
+from Crypto.Cipher import AES
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+GCM_NONCE_SIZE = 12
+GCM_TAG_SIZE = 16
 
 
 def generate_chaos_key(seed: bytes, iterations: int = 10000) -> bytes:
@@ -99,3 +103,50 @@ def kyber_decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
         ),
     )
     return shared_secret
+
+
+def _derive_final_key(shared_secret: bytes, chaos_key: bytes) -> bytes:
+    """Kyber shared secret ile chaos anahtarını birleştirerek AES anahtarı türet."""
+    return hashlib.sha3_256(shared_secret + chaos_key).digest()
+
+
+def hybrid_encrypt(plaintext: bytes, recipient_public_key: bytes) -> dict:
+    """
+    Lorenz + Kyber + AES-256-GCM hibrit şifreleme.
+
+    Rastgele chaos seed, Kyber KEM shared secret ve AES-GCM ile plaintext şifrelenir.
+    """
+    chaos_seed = os.urandom(24)
+    chaos_key = generate_chaos_key(chaos_seed)
+    shared_secret, kyber_ciphertext = kyber_encapsulate(recipient_public_key)
+    final_key = _derive_final_key(shared_secret, chaos_key)
+
+    nonce = os.urandom(GCM_NONCE_SIZE)
+    cipher = AES.new(final_key, AES.MODE_GCM, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+
+    return {
+        "ciphertext": ciphertext + tag,
+        "nonce": nonce,
+        "kyber_ciphertext": kyber_ciphertext,
+        "chaos_seed": chaos_seed,
+    }
+
+
+def hybrid_decrypt(data: dict, recipient_private_key: bytes) -> bytes:
+    """
+    Hibrit şifreli veriyi çözer.
+
+    Kyber decapsulation ve Lorenz anahtarı ile final AES anahtarı türetilir,
+    ardından AES-256-GCM ile plaintext elde edilir.
+    """
+    shared_secret = kyber_decapsulate(recipient_private_key, data["kyber_ciphertext"])
+    chaos_key = generate_chaos_key(data["chaos_seed"])
+    final_key = _derive_final_key(shared_secret, chaos_key)
+
+    encrypted = data["ciphertext"]
+    ciphertext = encrypted[:-GCM_TAG_SIZE]
+    tag = encrypted[-GCM_TAG_SIZE:]
+
+    cipher = AES.new(final_key, AES.MODE_GCM, nonce=data["nonce"])
+    return cipher.decrypt_and_verify(ciphertext, tag)
