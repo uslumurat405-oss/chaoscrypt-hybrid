@@ -1,10 +1,12 @@
 import hashlib
 import os
+import secrets
 
 import numpy as np
 from Crypto.Cipher import AES
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from pqcrypto.kem.ml_kem_768 import decaps as _ml_kem_decaps
+from pqcrypto.kem.ml_kem_768 import encaps as _ml_kem_encaps
+from pqcrypto.kem.ml_kem_768 import keygen as _ml_kem_keygen
 
 GCM_NONCE_SIZE = 12
 GCM_TAG_SIZE = 16
@@ -12,15 +14,33 @@ LORENZ_IC_BOUND = 15.0
 LORENZ_STATE_BOUND = 50.0
 
 
+def _bytes_to_unit_interval(chunk: bytes) -> float:
+    """8 byte'ı [0, 1) aralığına çevirir."""
+    return int.from_bytes(chunk, "little") / 2**64
+
+
 def _seed_to_lorenz_state(seed: bytes) -> tuple[float, float, float]:
-    """24 byte seed'i [-15, 15] aralığındaki Lorenz başlangıç değerlerine eşler."""
-    values = np.frombuffer(seed, dtype=np.float64).astype(np.float64, copy=True)
+    """Seed'in ilk 24 byte'ını [-15, 15] aralığındaki Lorenz başlangıç değerlerine eşler."""
+    material = seed[:24]
+    if len(seed) >= 32:
+        values = np.array(
+            [
+                _bytes_to_unit_interval(material[i * 8 : (i + 1) * 8])
+                * (2.0 * LORENZ_IC_BOUND)
+                - LORENZ_IC_BOUND
+                for i in range(3)
+            ],
+            dtype=np.float64,
+        )
+        return tuple(values)
+
+    values = np.frombuffer(material, dtype=np.float64).astype(np.float64, copy=True)
     values = np.nan_to_num(values, nan=0.0, posinf=LORENZ_IC_BOUND, neginf=-LORENZ_IC_BOUND)
 
     if np.any(np.abs(values) > LORENZ_IC_BOUND):
         # Ham float64 taşmasını önlemek için her 8 byte'ı düzgün dağılımlı [-15, 15]'e çevir.
         for i in range(3):
-            unit = int.from_bytes(seed[i * 8 : (i + 1) * 8], "little") / 2**64
+            unit = _bytes_to_unit_interval(material[i * 8 : (i + 1) * 8])
             values[i] = unit * (2.0 * LORENZ_IC_BOUND) - LORENZ_IC_BOUND
 
     return tuple(np.clip(values, -LORENZ_IC_BOUND, LORENZ_IC_BOUND))
@@ -39,19 +59,24 @@ def _stabilize_lorenz_state(x: float, y: float, z: float) -> tuple[float, float,
     return float(state[0]), float(state[1]), float(state[2])
 
 
-def generate_chaos_key(seed: bytes, iterations: int = 10000) -> bytes:
+def generate_chaos_key(seed: bytes | None = None, iterations: int = 10000) -> bytes:
     """
     Lorenz attractor kullanarak 256-bit şifreleme anahtarı üretir.
 
+    Seed verilmezse OS CSPRNG (`secrets.token_bytes(32)`) kullanılır. Lorenz
+    çıktısı bu seed ile SHA-256 üzerinden birleştirilir.
+
     Args:
-        seed: 24 byte'lık başlangıç değeri (3x float64)
+        seed: 24 veya 32 byte'lık başlangıç değeri. None ise OS CSPRNG üretir.
         iterations: Lorenz iterasyon sayısı (default: 10000)
 
     Returns:
-        32 byte'lık SHA3-256 hash'lenmiş anahtar
+        32 byte'lık SHA-256 anahtar (kaos + CSPRNG karışımı)
     """
-    if len(seed) != 24:
-        raise ValueError("seed must be exactly 24 bytes")
+    if seed is None:
+        seed = secrets.token_bytes(32)
+    if len(seed) not in (24, 32):
+        raise ValueError("seed must be 24 or 32 bytes")
 
     x, y, z = _seed_to_lorenz_state(seed)
 
@@ -76,68 +101,43 @@ def generate_chaos_key(seed: bytes, iterations: int = 10000) -> bytes:
 
     final_state = np.array([x, y, z], dtype=np.float64)
     state_bytes = final_state.tobytes()
+    return hashlib.sha256(state_bytes + seed).digest()
 
-    return hashlib.sha3_256(state_bytes).digest()
+
+def ml_kem_keygen() -> tuple[bytes, bytes]:
+    """ML-KEM-768 (FIPS 203) public/private anahtar çifti üretir."""
+    public_key, private_key = _ml_kem_keygen()
+    return bytes(public_key), bytes(private_key)
+
+
+def ml_kem_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
+    """
+    Public key ile shared secret ve ciphertext üretir (ML-KEM encapsulation).
+
+    Dönüş sırası mevcut API ile uyumludur: (shared_secret, ciphertext).
+    """
+    ciphertext, shared_secret = _ml_kem_encaps(public_key)
+    return bytes(shared_secret), bytes(ciphertext)
+
+
+def ml_kem_decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
+    """Ciphertext'ten shared secret'i çıkarır (ML-KEM decapsulation)."""
+    return bytes(_ml_kem_decaps(private_key, ciphertext))
 
 
 def generate_kyber_keys() -> tuple[bytes, bytes]:
-    """
-    Kyber (Lattice) anahtar çifti üretir.
-
-    Not: Gerçek Kyber henüz entegre edilmediği için geçici olarak RSA-2048
-    kullanılıyor. İleride post-kuantum Kyber implementasyonu ile değiştirilecek.
-    """
-    # Geçici Kyber yer tutucu: RSA-2048 anahtar çifti üret
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_key = private_key.public_key()
-
-    public_bytes = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    private_bytes = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return public_bytes, private_bytes
+    """Kyber Round 3 yerine FIPS 203 ML-KEM-768 anahtar çifti üretir."""
+    return ml_kem_keygen()
 
 
 def kyber_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
-    """
-    Public key kullanarak shared secret ve ciphertext üretir (KEM encapsulation).
-
-    32 byte rastgele shared secret oluşturulur ve RSA-OAEP ile şifrelenir.
-    """
-    public_key_obj = serialization.load_pem_public_key(public_key)
-    shared_secret = os.urandom(32)
-
-    ciphertext = public_key_obj.encrypt(
-        shared_secret,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None,
-        ),
-    )
-    return shared_secret, ciphertext
+    """Mevcut Kyber API'sini ML-KEM-768 encapsulation ile karşılar."""
+    return ml_kem_encapsulate(public_key)
 
 
 def kyber_decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
-    """
-    Private key ile ciphertext'ten shared secret'i çıkarır (KEM decapsulation).
-    """
-    private_key_obj = serialization.load_pem_private_key(private_key, password=None)
-
-    shared_secret = private_key_obj.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None,
-        ),
-    )
-    return shared_secret
+    """Mevcut Kyber API'sini ML-KEM-768 decapsulation ile karşılar."""
+    return ml_kem_decapsulate(private_key, ciphertext)
 
 
 def _derive_final_key(shared_secret: bytes, chaos_key: bytes) -> bytes:
@@ -151,7 +151,7 @@ def hybrid_encrypt(plaintext: bytes, recipient_public_key: bytes) -> dict:
 
     Rastgele chaos seed, Kyber KEM shared secret ve AES-GCM ile plaintext şifrelenir.
     """
-    chaos_seed = os.urandom(24)
+    chaos_seed = secrets.token_bytes(32)
     chaos_key = generate_chaos_key(chaos_seed)
     shared_secret, kyber_ciphertext = kyber_encapsulate(recipient_public_key)
     final_key = _derive_final_key(shared_secret, chaos_key)

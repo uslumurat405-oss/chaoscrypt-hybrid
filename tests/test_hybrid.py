@@ -16,6 +16,8 @@ def test_hybrid_roundtrip():
     decrypted = hybrid_decrypt(encrypted, private_key)
 
     assert decrypted == plaintext
+    assert len(encrypted["chaos_seed"]) == 32
+    assert hybrid_decrypt(encrypted, private_key) == plaintext
 
 
 def test_different_plaintexts():
