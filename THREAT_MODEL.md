@@ -40,7 +40,7 @@
 
 **Saldırı senaryosu.** Saldırgan şifreli paketteki ciphertext, nonce, `kyber_ciphertext` veya `chaos_seed` alanlarını değiştirir. Amaç plaintext’i bozmak veya sahte içerik üretmek.
 
-**Mevcut savunma.** AES-256-GCM authentication tag (16 byte) ciphertext’e bağlıdır. Tag doğrulanmazsa `decrypt_and_verify` hata verir. Anahtar `SHA3-256(ML-KEM shared secret ‖ chaos_key)` ile türetilir; paketin herhangi bir parçasının değiştirilmesi büyük olasılıkla GCM doğrulamasını düşürür.
+**Mevcut savunma.** AES-256-GCM authentication tag (16 byte) ciphertext'e bağlıdır. Tag doğrulanmazsa çözme, `constant_time_equal` (`hmac.compare_digest`) ile yapılan sabit zamanlı doğrulama tarafından reddedilir. Anahtar `SHA3-256(ML-KEM shared secret ‖ chaos_key)` ile türetilir; paketin herhangi bir parçasının değiştirilmesi büyük olasılıkla GCM doğrulamasını düşürür.
 
 **Risk:** Düşük
 
@@ -70,12 +70,12 @@
 
 **Saldırı senaryosu.** Saldırgan timing, önbellek veya güç analizi ile Lorenz iterasyonlarından, Python/float yolundan veya ML-KEM decapsulation’dan anahtar materyali sızdırır. `chaos_seed` zaten paketle birlikte açıktır; asıl sır ML-KEM shared secret ve türetilmiş AES anahtarıdır.
 
-**Mevcut savunma.** AES-256-GCM gizliliği; OS CSPRNG seed; SHA-256 ile kaos çıktısının CSPRNG seed ile karıştırılması. Lorenz Euler adımları ve NumPy `float64` işlemleri constant-time değildir. `pqcrypto` ML-KEM katmanı native implementasyona dayanır; Python sarmalayıcı timing açısından denetlenmemiştir.
+**Mevcut savunma.** AES-256-GCM gizliliği; OS CSPRNG seed; SHA-256 ile kaos çıktısının CSPRNG seed ile karıştırılması. GCM tag doğrulaması ve gizli bayt karşılaştırmaları `hmac.compare_digest` üzerinden sabit zamanlı yapılır (`constant_time_equal`); ML-KEM decapsulation girdi boyutları yalnızca kamu uzunluk bilgisiyle doğrulanır ve implicit rejection sabit zamanlı PQClean yolunu kullanır. `tests/test_timing_attacks.py`, karşılaştırma ve decapsulation zamanlamasını istatistiksel olarak ölçer. Lorenz Euler adımları ve NumPy `float64` işlemleri constant-time değildir.
 
 **Risk:** Yüksek
 
 **Gelecek iyileştirmeler**
-- Constant-time karşılaştırma ve secret-dependent branch temizliği
+- Secret-dependent branch temizliği (kalan kısım; sabit zamanlı karşılaştırma tamamlandı)
 - Lorenz’i kriptografik primitive olarak değil, yalnızca ek entropy karıştırıcı olarak tutmak
 - Side-channel değerlendirmesi (Dudect / TVLA) ve sızdırmaz ML-KEM yolu
 - Secret’lerin `bytes` üzerinde mümkün olduğunca kısa ömürlü tutulması ve sıfırlanması
@@ -119,7 +119,7 @@
 | S | Anahtar değiştirme | Orta | ML-KEM-768; public key kimliği yok |
 | T | Şifreli paket değiştirme | Düşük | AES-256-GCM tag |
 | R | Gönderenin inkarı | Düşük | İmza yok (kabul edilen boşluk) |
-| I | Side-channel | Yüksek | CSPRNG + GCM; constant-time yok |
+| I | Side-channel | Yüksek | CSPRNG + GCM; sabit zamanlı karşılaştırma (Lorenz yolu hariç) |
 | D | Kaynak tüketme | Orta | Rate limit yok |
 | E | Bellek bozulması | Düşük | Python memory safety |
 

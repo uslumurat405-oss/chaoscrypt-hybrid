@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import os
 import secrets
 
@@ -10,6 +11,8 @@ from pqcrypto.kem.ml_kem_768 import keygen as _ml_kem_keygen
 
 GCM_NONCE_SIZE = 12
 GCM_TAG_SIZE = 16
+ML_KEM_PRIVATE_KEY_SIZE = 2400
+ML_KEM_CIPHERTEXT_SIZE = 1088
 LORENZ_IC_BOUND = 15.0
 LORENZ_STATE_BOUND = 50.0
 
@@ -104,6 +107,17 @@ def generate_chaos_key(seed: bytes | None = None, iterations: int = 10000) -> by
     return hashlib.sha256(state_bytes + seed).digest()
 
 
+def constant_time_equal(a: bytes, b: bytes) -> bool:
+    """
+    İki bayt dizisini sabit zamanlı karşılaştırır (`hmac.compare_digest`).
+
+    MAC tag'leri, anahtarlar ve shared secret gibi gizli bayt dizilerinde
+    `==` / `!=` operatörleri ilk farklı baytta erken çıkış yapar ve zamanlama
+    yan kanalı sızdırır; bu sarmalayıcı içerikten bağımsız sabit sürede çalışır.
+    """
+    return hmac.compare_digest(a, b)
+
+
 def ml_kem_keygen() -> tuple[bytes, bytes]:
     """ML-KEM-768 (FIPS 203) public/private anahtar çifti üretir."""
     public_key, private_key = _ml_kem_keygen()
@@ -121,7 +135,19 @@ def ml_kem_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
 
 
 def ml_kem_decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
-    """Ciphertext'ten shared secret'i çıkarır (ML-KEM decapsulation)."""
+    """
+    Ciphertext'ten shared secret'i çıkarır (ML-KEM decapsulation).
+
+    PQClean tabanlı ML-KEM-768, FO (Fujisaki-Okamoto) dönüşümünün ciphertext
+    yeniden-şifreleme karşılaştırmasını sabit zamanlı yürütür ve geçersiz
+    ciphertext'lerde gizli reddetme (implicit rejection) uygular; bu Python
+    sarmalayıcıda secret-dependent dal yoktur. Boyut denetimi yalnızca kamu
+    uzunluk bilgisi üzerinden yapılır.
+    """
+    if len(private_key) != ML_KEM_PRIVATE_KEY_SIZE:
+        raise ValueError(f"private key must be {ML_KEM_PRIVATE_KEY_SIZE} bytes")
+    if len(ciphertext) != ML_KEM_CIPHERTEXT_SIZE:
+        raise ValueError(f"ciphertext must be {ML_KEM_CIPHERTEXT_SIZE} bytes")
     return bytes(_ml_kem_decaps(private_key, ciphertext))
 
 
@@ -173,7 +199,9 @@ def hybrid_decrypt(data: dict, recipient_private_key: bytes) -> bytes:
     Hibrit şifreli veriyi çözer.
 
     Kyber decapsulation ve Lorenz anahtarı ile final AES anahtarı türetilir,
-    ardından AES-256-GCM ile plaintext elde edilir.
+    ardından AES-256-GCM ile plaintext elde edilir. GCM tag doğrulaması
+    `constant_time_equal` ile sabit zamanlı yapılır; tag eşleşmezse hata
+    verilir ve plaintext hiçbir koşulda döndürülmez.
     """
     shared_secret = kyber_decapsulate(recipient_private_key, data["kyber_ciphertext"])
     chaos_key = generate_chaos_key(data["chaos_seed"])
@@ -184,4 +212,16 @@ def hybrid_decrypt(data: dict, recipient_private_key: bytes) -> bytes:
     tag = encrypted[-GCM_TAG_SIZE:]
 
     cipher = AES.new(final_key, AES.MODE_GCM, nonce=data["nonce"])
-    return cipher.decrypt_and_verify(ciphertext, tag)
+    plaintext = cipher.decrypt(ciphertext)
+
+    # PyCryptodome decrypt tarafında `digest()` çağrılamaz; tag'i bizim
+    # tarafımızda açıkça sabit zamanlı doğrulamak için plaintext'i aynı nonce
+    # ile yeniden şifreliyoruz (GCM-CTR deterministiktir, tag yeniden oluşur)
+    # ve karşılaştırmayı `constant_time_equal` ile yapıyoruz. Başarılı ve
+    # başarısız yollar eşit iş yapar; plaintext yalnızca eşleşmede döner.
+    verifier = AES.new(final_key, AES.MODE_GCM, nonce=data["nonce"])
+    verifier.encrypt(plaintext)
+    computed_tag = verifier.digest()
+    if not constant_time_equal(computed_tag, tag):
+        raise ValueError("AES-GCM authentication failed: tag mismatch")
+    return plaintext

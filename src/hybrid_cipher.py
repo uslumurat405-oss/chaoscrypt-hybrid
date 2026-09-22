@@ -1,3 +1,4 @@
+import hmac
 import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from src.chaotic_csprng import ChaoticCSPRNG
@@ -20,7 +21,7 @@ class HybridCipher:
         return self.VERSION + salt + nonce + ciphertext
     
     def decrypt(self, data: bytes, password: str) -> bytes:
-        if data[0:1] != self.VERSION:
+        if not hmac.compare_digest(data[0:1], self.VERSION):
             raise ValueError("Invalid data format")
         
         salt = data[1:33]
@@ -37,6 +38,7 @@ class HybridCipher:
         
         aesgcm = AESGCM(key)
         try:
+            # Tag doğrulaması OpenSSL içinde sabit zamanlı (CRYPTO_memcmp) yapılır.
             substituted = aesgcm.decrypt(nonce, ciphertext, None)
         except Exception:
             raise ValueError("Wrong password or corrupted data")
