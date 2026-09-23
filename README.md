@@ -1,3 +1,13 @@
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![Tests](https://img.shields.io/badge/Tests-36_Passing-brightgreen)
+![Security](https://img.shields.io/badge/Security-Timing_Attack_Resistant-orange)
+![NIST](https://img.shields.io/badge/NIST-FIPS_203-yellow)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+# ChaosCrypt-Hybrid
+
+Lorenz attractor, ML-KEM-768 (FIPS 203) ve AES-256-GCM tabanlı hibrit şifreleme motoru.
+...
 # ChaosCrypt-Hybrid
 
 Lorenz attractor, ML-KEM-768 (FIPS 203) ve AES-256-GCM tabanlı hibrit şifreleme motoru.
