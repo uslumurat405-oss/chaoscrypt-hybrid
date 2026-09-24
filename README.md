@@ -71,6 +71,59 @@ Plaintext → [Lorenz Key + OS CSPRNG] + [ML-KEM-768 Shared Secret] → AES-256-
 
 All secret-material comparisons (GCM authentication tags, ML-KEM shared secrets, derived keys) use `hmac.compare_digest` via `constant_time_equal`.
 
+## Examples
+
+A complete, runnable example lives in [`examples/basic_usage.py`](examples/basic_usage.py).
+
+### 🚀 Quick Start
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/uslumurat405-oss/chaoscrypt-hybrid.git
+cd chaoscrypt-hybrid
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run the example
+python examples/basic_usage.py
+```
+
+### 📋 Expected Output
+
+```text
+$ python examples/basic_usage.py
+======================================================================
+ChaosCrypt-Hybrid - basic usage example
+======================================================================
+
+[1] Generating ML-KEM-768 key pair ...
+    Public key : 1184 bytes
+    Private key: 2400 bytes  (keep this secret)
+
+[2] Encrypting the message ...
+    Plaintext        : ChaosCrypt-Hybrid: post-quantum + chaos hybrid encryption demo.
+    Ciphertext + tag : 79 bytes
+    GCM nonce        : 12 bytes
+    ML-KEM ciphertext: 1088 bytes
+    Chaos seed       : 32 bytes
+
+[3] Decrypting the packet ...
+    Recovered        : ChaosCrypt-Hybrid: post-quantum + chaos hybrid encryption demo.
+    Result           : OK - decrypted text matches the original.
+
+[4] Tamper detection check ...
+    Tampered packet rejected as expected (AES-GCM authentication failed: tag mismatch).
+
+Done.
+```
+
+### 💡 What This Means
+
+- 🔐 **Post-quantum key sizes** — the 1184-byte public key and 2400-byte private key come from ML-KEM-768's lattice-based construction (NIST FIPS 203); they are larger than classical ECC keys because they must resist both classical and quantum attackers.
+- ✅ **Tamper detection** — AES-256-GCM authenticates the ciphertext, so flipping a single bit makes the tag check fail: decryption raises an error instead of returning corrupted plaintext.
+- ⏱️ **Timing attack resistance** — all secret comparisons run in constant time via `constant_time_equal` (`hmac.compare_digest`), so verification duration does not reveal where bytes match or differ.
+
 ## Security Notice
 
 - Research-grade with basic side-channel protection
