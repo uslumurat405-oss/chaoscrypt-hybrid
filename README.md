@@ -7,10 +7,6 @@
 # ChaosCrypt-Hybrid
 
 Lorenz attractor, ML-KEM-768 (FIPS 203) ve AES-256-GCM tabanlı hibrit şifreleme motoru.
-...
-# ChaosCrypt-Hybrid
-
-Lorenz attractor, ML-KEM-768 (FIPS 203) ve AES-256-GCM tabanlı hibrit şifreleme motoru.
 
 Araştırma prototipi: kaos tabanlı anahtar türetimi, OS CSPRNG ve post-kuantum KEM bir arada kullanılır.
 
