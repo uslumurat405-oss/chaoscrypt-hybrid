@@ -2,6 +2,11 @@ import pytest
 import os
 import tempfile
 from src.hybrid_cipher import HybridCipher
+from src.crypto_engine import (
+    generate_kyber_keys,
+    hybrid_decrypt,
+    hybrid_encrypt,
+)
 
 @pytest.fixture
 def cipher():
@@ -56,3 +61,78 @@ def test_file_encrypt_decrypt(cipher):
         for p in [input_path, enc_path, dec_path]:
             if os.path.exists(p):
                 os.unlink(p)
+
+
+def test_hybrid_encrypt_decrypt_with_associated_data():
+    """Geçerli associated_data ile şifrele/çöz turu orijinal metni döndürmeli."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Secret AEAD message"
+    associated_data = b"user_id:123|timestamp:2026"
+
+    encrypted = hybrid_encrypt(plaintext, public_key, associated_data)
+    decrypted = hybrid_decrypt(encrypted, private_key, associated_data)
+
+    assert decrypted == plaintext
+
+
+def test_hybrid_decrypt_fails_with_tampered_associated_data():
+    """associated_data değiştirilir veya ihmal edilirse tag doğrulaması başarısız olmalı."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Secret AEAD message"
+    associated_data = b"user_id:123|timestamp:2026"
+
+    encrypted = hybrid_encrypt(plaintext, public_key, associated_data)
+
+    with pytest.raises(ValueError):
+        hybrid_decrypt(encrypted, private_key, b"user_id:123|timestamp:9999")
+
+    with pytest.raises(ValueError):
+        hybrid_decrypt(encrypted, private_key)
+
+
+def test_hybrid_backward_compatibility_without_associated_data():
+    """associated_data verilmediğinde eski iki parametreli davranış korunmalı."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Legacy message"
+
+    encrypted = hybrid_encrypt(plaintext, public_key)
+    decrypted = hybrid_decrypt(encrypted, private_key)
+
+    assert decrypted == plaintext
+
+
+def test_hybrid_with_empty_associated_data():
+    """Boş associated_data (b"") ile şifrele/çöz turu çalışmalı."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Empty AAD message"
+
+    encrypted = hybrid_encrypt(plaintext, public_key, b"")
+    decrypted = hybrid_decrypt(encrypted, private_key, b"")
+
+    assert decrypted == plaintext
+
+
+def test_hybrid_with_large_associated_data():
+    """1KB'lık büyük associated_data ile şifrele/çöz turu çalışmalı."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Large AAD message"
+    associated_data = os.urandom(1024)
+
+    encrypted = hybrid_encrypt(plaintext, public_key, associated_data)
+    decrypted = hybrid_decrypt(encrypted, private_key, associated_data)
+
+    assert decrypted == plaintext
+
+
+def test_hybrid_associated_data_wrong_type_raises_valueerror():
+    """bytes olmayan associated_data hem şifrelemede hem çözmede ValueError üretmeli."""
+    public_key, private_key = generate_kyber_keys()
+    plaintext = b"Type check message"
+    associated_data = "user_id:123|timestamp:2026"
+
+    with pytest.raises(ValueError):
+        hybrid_encrypt(plaintext, public_key, associated_data)
+
+    encrypted = hybrid_encrypt(plaintext, public_key)
+    with pytest.raises(ValueError):
+        hybrid_decrypt(encrypted, private_key, associated_data)
