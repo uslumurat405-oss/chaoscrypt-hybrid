@@ -43,15 +43,20 @@ Klasik **X25519** (Elliptic Curve) ve post-kuantum **ML-KEM-768** (NIST standard
 
 ```text
 Client → X25519 + ML-KEM-768 → HKDF → AES-256-GCM → Encrypted Output
+```
 
+---
 
-🚀 Kurulum
-Gereksinimler
-Python 3.10+
-cryptography kütüphanesi
+## 🚀 Kurulum
 
-Hızlı Kurulum
+### Gereksinimler
 
+- Python 3.10+
+- `cryptography` kütüphanesi
+
+### Hızlı Kurulum
+
+```bash
 # Repoyu klonla
 git clone https://github.com/uslumurat405-oss/chaoscrypt-hybrid.git
 cd chaoscrypt-hybrid
@@ -63,10 +68,15 @@ venv\Scripts\activate     # Windows
 
 # Bağımlılıkları yükle
 pip install cryptography pytest pytest-cov
+```
 
-💻 Kullanım
-Temel Şifreleme
+---
 
+## 💻 Kullanım
+
+### Temel Şifreleme
+
+```python
 from src.core import hybrid_key_exchange, derive_aes_key
 from src.crypto_engine import hybrid_encrypt, hybrid_decrypt
 
@@ -97,10 +107,11 @@ decrypted = hybrid_decrypt(
 )
 
 assert decrypted == plaintext  # ✅ Başarılı!
+```
 
-Büyük Dosya Şifreleme (Streaming)
+### Büyük Dosya Şifreleme (Streaming)
 
-
+```python
 from src.crypto_engine import encrypt_stream, decrypt_stream
 
 # 1 GB'lık dosyayı şifrele (RAM'e yüklemeden)
@@ -118,9 +129,11 @@ decrypt_stream(
     key=aes_key,
     associated_data=b"file_type:video|owner:alice"
 )
+```
 
-Binary Serialization
+### Binary Serialization
 
+```python
 from src.serialization import serialize, deserialize
 
 # Şifreli veriyi paketle
@@ -133,48 +146,70 @@ packed_data = serialize(
 
 # Paket aç
 nonce, enc_key, ciphertext, tag = deserialize(packed_data)
+```
 
+---
 
-🧪 Testler
-Tüm Testleri Çalıştır
+##  Testler
 
+### Tüm Testleri Çalıştır
+
+```bash
 pytest tests/ -v
+```
 
-Beklenen Çıktı:
-
+**Beklenen Çıktı:**
+```text
 ========================= 96 passed in 54.65s =========================
+```
 
-Coverage Raporu
+### Coverage Raporu
 
-Dosya
-Coverage
-src/core.py
-95%
-src/crypto_engine.py
-91%
-src/hybrid_cipher.py
-98%
-src/serialization.py
-91%
-src/chaos_engine.py
-100%
+```bash
+pytest tests/ --cov=src --cov-report=term-missing
+```
 
-🔒 Güvenlik Notları
-Post-Kuantum Güvenlik
-ChaosCrypt-Hybrid, NIST Post-Quantum Cryptography Standardization sürecinde seçilen ML-KEM-768 (eski adıyla Kyber) algoritmasını kullanır. Bu algoritma, kuantum bilgisayarların Shor algoritması ile klasik elliptic curve kriptografisini kırmasına karşı dirençlidir.
-Hibrit Yaklaşım
-NIST'in önerdiği "belt-and-suspenders" (kemer ve askı) yaklaşımını benimser:
-X25519: Kanıtlanmış, geniş çapta kullanılan klasik algoritma
-ML-KEM-768: Post-kuantum dirençli yeni nesil algoritma
+**Coverage Özeti:**
+
+| Dosya | Coverage |
+|-------|----------|
+| `src/core.py` | 95% |
+| `src/crypto_engine.py` | 91% |
+| `src/hybrid_cipher.py` | 98% |
+| `src/serialization.py` | 91% |
+| `src/chaos_engine.py` | 100% |
+
+---
+
+## 🔒 Güvenlik Notları
+
+### Post-Kuantum Güvenlik
+
+ChaosCrypt-Hybrid, **NIST Post-Quantum Cryptography Standardization** sürecinde seçilen **ML-KEM-768** (eski adıyla Kyber) algoritmasını kullanır. Bu algoritma, kuantum bilgisayarların Shor algoritması ile klasik elliptic curve kriptografisini kırmasına karşı dirençlidir.
+
+### Hibrit Yaklaşım
+
+NIST'in önerdiği **"belt-and-suspenders"** (kemer ve askı) yaklaşımını benimser:
+- **X25519**: Kanıtlanmış, geniş çapta kullanılan klasik algoritma
+- **ML-KEM-768**: Post-kuantum dirençli yeni nesil algoritma
+
 Her iki algoritmanın aynı anda kırılması gerektiğinden, güvenlik marjı katlanarak artar.
-AEAD Koruması
-Associated Data özelliği, şifrelenmeyen meta verilerin (kullanıcı ID, timestamp, dosya başlığı) bütünlüğünü korur. Bu, şu saldırıları önler:
-Replay Attack: Eski şifreli mesajların tekrar gönderilmesi
-Cut-and-Paste Attack: Farklı mesajların parçalarının birleştirilmesi
-Memory Safety
-Python'da garbage collector nedeniyle %100 secure wiping garanti edilemez. Ancak bytearray ve ctypes.memset ile mitigation sağlanır. Tam güvenlik için Rust/C implementasyonu önerilir.
 
+### AEAD Koruması
 
+**Associated Data** özelliği, şifrelenmeyen meta verilerin (kullanıcı ID, timestamp, dosya başlığı) bütünlüğünü korur. Bu, şu saldırıları önler:
+- **Replay Attack**: Eski şifreli mesajların tekrar gönderilmesi
+- **Cut-and-Paste Attack**: Farklı mesajların parçalarının birleştirilmesi
+
+### Memory Safety
+
+Python'da garbage collector nedeniyle %100 secure wiping garanti edilemez. Ancak `bytearray` ve `ctypes.memset` ile **mitigation** sağlanır. Tam güvenlik için Rust/C implementasyonu önerilir.
+
+---
+
+##  Proje Yapısı
+
+```text
 chaoscrypt-hybrid/
 ├── src/
 │   ├── core.py              # Hibrit anahtar değişimi + HKDF
@@ -193,48 +228,59 @@ chaoscrypt-hybrid/
 ├── SECURITY.md
 ├── THREAT_MODEL.md
 └── requirements.txt
+```
 
+---
 
-🤝 Katkıda Bulunma
+## 🤝 Katkıda Bulunma
+
 Katkılarınızı bekliyoruz! Lütfen şu adımları izleyin:
-Fork yapın
-Feature branch oluşturun (git checkout -b feature/amazing-feature)
-Commit yapın (git commit -m 'Add amazing feature')
-Push yapın (git push origin feature/amazing-feature)
-Pull Request açın
 
-Test Yazma
+1. Fork yapın
+2. Feature branch oluşturun (`git checkout -b feature/amazing-feature`)
+3. Commit yapın (`git commit -m 'Add amazing feature'`)
+4. Push yapın (`git push origin feature/amazing-feature`)
+5. Pull Request açın
+
+### Test Yazma
 
 Yeni özellik eklerseniz, lütfen karşılık gelen testleri de ekleyin:
-
+```bash
 pytest tests/ -v --cov=src
+```
 
 Coverage %90'ın altına düşmemelidir.
 
+---
 
-📄 Lisans
+##  Lisans
 
-Bu proje MIT License altında lisanslanmıştır. Detaylar için LICENSE dosyasına bakın.
+Bu proje **MIT License** altında lisanslanmıştır. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
 
-🙏 Teşekkürler
+---
 
-NIST: Post-kuantum kriptografi standartları için
-Python cryptography kütüphanesi: Güvenli kriptografik primitifler için
-Açık kaynak topluluğu: İlham ve destek için
+## 🙏 Teşekkürler
 
+- **NIST**: Post-kuantum kriptografi standartları için
+- **Python cryptography kütüphanesi**: Güvenli kriptografik primitifler için
+- **Açık kaynak topluluğu**: İlham ve destek için
 
-📬 İletişim
-GitHub Issues: Bug report veya feature request
-GitHub: uslumurat405-oss
+---
 
+## 📬 İletişim
 
+- **GitHub Issues**: [Bug report veya feature request](https://github.com/uslumurat405-oss/chaoscrypt-hybrid/issues)
+- **GitHub**: [uslumurat405-oss](https://github.com/uslumurat405-oss)
+
+---
 
 <div align="center">
 
-Made with 🔒 by Murat Uslu
-⭐ Star this repo if you find it useful!
-</div>
+**Made with 🔒 by Murat Uslu**
 
+⭐ Star this repo if you find it useful!
+
+</div>
 
 
 
